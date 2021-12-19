@@ -1,0 +1,16 @@
+archetype archetypeGetterTester(quartz : address)
+
+variable res_owner : address = quartz
+variable res_balance : nat = 0
+variable res_uri : string = ""
+
+entry execGetOwner(tokenid : nat) {
+  match callview<option<address>> (quartz, "owner_of", tokenid) with
+  | some (v) ->
+    match v with
+    | some o -> res_owner := o
+    | none -> ()
+    end
+  | none -> fail("QUARTZ_VIEW_NOT_FOUND")
+  end
+}

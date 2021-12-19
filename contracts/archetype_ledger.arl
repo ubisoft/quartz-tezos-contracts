@@ -1,0 +1,159 @@
+/**
+ * Storage contract for the Quartz token ledger
+ */
+archetype archetype_ledger(admin: address)
+
+record part {
+  partAccount : address;
+  partValue   : nat;
+}
+
+asset archetypeLedger to big_map {
+  archId : nat;
+  archValidator : address;
+  maxBalanceAllowed : option<nat>;
+  royalties: list<part> = [];
+}
+
+//----------------------------------------------------------------------------
+// Constants
+//----------------------------------------------------------------------------
+
+constant ADMIN_CANDIDATE_NOT_SET      : string = "ADMIN_CANDIDATE_NOT_SET"
+constant ARCHETYPE_ALREADY_REGISTERED : string = "ARCHETYPE_ALREADY_REGISTERED"
+constant ARCHETYPE_NOT_SET            : string = "ARCHETYPE_NOT_SET"
+constant CALLER_NOT_ADMIN_CANDIDATE   : string = "CALLER_NOT_ADMIN_CANDIDATE"
+
+//----------------------------------------------------------------------------
+// Contract configuration
+//----------------------------------------------------------------------------
+
+/**
+ * Update the contract metadata URI
+ */
+entry setMetadataUri(idata : bytes) {
+  called by admin
+  effect  { metadata := put(metadata, "", idata) }
+}
+
+//----------------------------------------------------------------------------
+// Role management
+//----------------------------------------------------------------------------
+
+variable adminCandidate : option<address> = none
+
+/**
+ * Update the admin candidate. It must then be validated by the candidate to be effective
+ */
+entry setAdminCandidate(icandidate : address) {
+  called by admin
+  effect { adminCandidate := some(icandidate) }
+}
+
+/**
+ * Validate the admin candidate
+ */
+entry acceptAdminCandidate() {
+  effect {
+    match adminCandidate with
+    | some(v) -> begin
+        dorequire(caller = v, CALLER_NOT_ADMIN_CANDIDATE);
+        admin := v;
+        adminCandidate := none
+      end
+    | none -> fail(ADMIN_CANDIDATE_NOT_SET)
+    end
+  }
+}
+
+//----------------------------------------------------------------------------
+// Views
+//----------------------------------------------------------------------------
+
+/**
+ * Checks if an archetype is declared
+ */
+view containsArchId(aid : nat) : bool {
+  return archetypeLedger.contains(aid)
+}
+
+/**
+ * Get the quota for an archetype
+ */
+view getMaxBalance(aid : nat) : option<nat> {
+  return archetypeLedger[aid].maxBalanceAllowed
+}
+
+/**
+ * Get the validator contract for an archetype
+ */
+view getValidator(aid : nat) : address {
+  return archetypeLedger[aid].archValidator
+}
+
+/**
+ * Get the royalties configuration for an archetype
+ */
+view getRoyalties(aid : nat) : list<part> {
+  var empty : list<part> = [];
+  return
+    (if archetypeLedger.contains(aid)
+    then archetypeLedger[aid].royalties
+    else empty)
+}
+
+
+//----------------------------------------------------------------------------
+// Setters
+//----------------------------------------------------------------------------
+
+variable %archetype : option<address> = none
+
+/**
+ * Set the Quartz archetype contract
+ */
+entry setArchetype(a : address) {
+  called by admin
+  effect { %archetype := some(a) }
+}
+
+/**
+ * Set the validator contract for an archetype
+ */
+entry setValidator(archid : nat, v : address) {
+  called by admin or require_some(%archetype, ARCHETYPE_NOT_SET)
+  effect { archetypeLedger.update(archid, { archValidator = v} ) }
+}
+
+/**
+ * Set the quota for an archetype
+ */
+entry setMaxBalanceAllowed(archid : nat, v : option<nat>) {
+  called by admin or require_some(%archetype, ARCHETYPE_NOT_SET)
+  effect {
+    archetypeLedger.update(archid, { maxBalanceAllowed = v} )
+  }
+}
+
+/**
+ * Set the royalties configuration for an archetype
+ */
+entry setRoyalties(archid : nat, v : list<part>) {
+  called by admin or require_some(%archetype, ARCHETYPE_NOT_SET)
+  effect { archetypeLedger.update(archid, { royalties = v} ) }
+}
+
+/**
+ * Add a new archetype
+ */
+entry add(id : nat, mintingValidator : address, imaxBalanceAllowed : option<nat>) {
+  called by opt_get(%archetype)
+  require {
+    r1 : not archetypeLedger.contains(id) otherwise ARCHETYPE_ALREADY_REGISTERED;
+  }
+  effect {
+    archetypeLedger.add({id; mintingValidator; imaxBalanceAllowed; []})
+  }
+}
+
+

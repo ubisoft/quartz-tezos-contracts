@@ -1,0 +1,27 @@
+archetype getFA2Balance
+
+variable res_balance : nat = 0
+
+record balance_of_request {
+  bo_owner : address;
+  btoken_id : nat;
+} as ((owner, token_id))
+
+record balance_of_response {
+  request : balance_of_request;
+  balance_ : nat;
+} as ((request, balance))
+
+entry setBalance(lbor : list<balance_of_response>) {
+  match lbor with
+  | hd::tl -> begin
+    res_balance := hd.balance_
+    end
+  | [] -> fail("empty response")
+  end
+}
+
+entry execBalanceof (fa2 :address, owner : address, tokenid : nat) {
+  var bor : balance_of_request = { owner; tokenid };
+  transfer 0tz to fa2 call balance_of<list<balance_of_request> * contract<list<balance_of_response>>>(([bor], self.setBalance));
+}

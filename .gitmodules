@@ -1,0 +1,3 @@
+[submodule "whitelist-smart-contract-archetype"]
+	path = whitelist-smart-contract-archetype
+	url = https://gitlab.com/tezos-paris-hub/whitelist-smart-contract-archetype.git

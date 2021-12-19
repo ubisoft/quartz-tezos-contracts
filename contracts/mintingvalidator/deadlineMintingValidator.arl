@@ -1,0 +1,129 @@
+archetype deadlineMintingValidator(admin : address)
+
+//----------------------------------------------------------------------------
+// Constants
+//----------------------------------------------------------------------------
+
+constant ADMIN_CANDIDATE_NOT_SET      : string = "ADMIN_CANDIDATE_NOT_SET"
+constant CALLER_NOT_ADMIN_CANDIDATE   : string = "CALLER_NOT_ADMIN_CANDIDATE"
+constant DEADLINE_ALREADY_SET         : string = "DEADLINE_ALREADY_SET"
+constant DEADLINE_REACHED             : string = "DEADLINE_REACHED"
+constant CALLER_NOT_MINTER               : string = "CALLER_NOT_MINTER"
+constant SERIAL_NUMBER_OUT_OF_BOUNDS  : string = "SERIAL_NUMBER_OUT_OF_BOUNDS"
+
+
+//----------------------------------------------------------------------------
+// Contract configuration
+//----------------------------------------------------------------------------
+
+variable adminCandidate : option<address> = none
+
+/**
+ * Update the admin candidate. It must then be validated by the candidate to be effective
+ */
+entry setAdminCandidate(icandidate : address) {
+  called by admin
+  effect { adminCandidate := some(icandidate) }
+}
+
+/**
+ * Validate the admin candidate
+ */
+entry acceptAdminCandidate() {
+  effect {
+    match adminCandidate with
+    | some(v) -> begin
+        dorequire(caller = v, CALLER_NOT_ADMIN_CANDIDATE);
+        admin := v;
+        adminCandidate := none
+      end
+    | none -> fail(ADMIN_CANDIDATE_NOT_SET)
+    end
+  }
+}
+
+entry setMetadataUri(idata : bytes) {
+  called by admin
+  effect {
+    metadata := put(metadata, "", idata)
+  }
+}
+
+//----------------------------------------------------------------------------
+// Role management
+//----------------------------------------------------------------------------
+
+constant MINTER : string = "minter"
+
+asset role {
+  rid: string;
+  raddrs : set<address> = [];
+} initialized by {
+  {MINTER; []}
+}
+
+entry grantRole(irole : string, iaddrs : list<address>) {
+  called by admin
+  effect {
+    for iaddr in iaddrs do
+      role.update(irole, { raddrs = add(role[irole].raddrs, iaddr)})
+    done
+  }
+}
+
+entry revokeRole(irole : string, iaddrs : list<address>) {
+  called by admin
+  effect {
+    for iaddr in iaddrs do
+      role.update(irole, { raddrs = remove(role[irole].raddrs, iaddr)})
+    done
+  }
+}
+
+function isRole(irole : string, a : address) : bool {
+  return role[irole].raddrs.contains(a)
+}
+
+function isMinter(addr : address) : bool {
+  return isRole(MINTER, addr)
+}
+
+function isMinterCaller() : bool {
+  if isMinter(caller)
+  then return true
+  else fail(CALLER_NOT_MINTER)
+}
+
+asset deadline to big_map {
+  archid : nat;
+  value  : date;
+}
+
+entry setDealine(id : nat, )
+
+entry setDeadline(id : nat, v : date) {
+  require {
+    r0 : isMinterCaller();
+    r1 : not deadline.contains(id) otherwise DEADLINE_ALREADY_SET
+  }
+  effect {
+    deadline.add({ id; v })
+  }
+}
+
+entry validateMint(id: nat, serialNr : nat) {
+  require {
+    r2 : serialNr > 0             otherwise SERIAL_NUMBER_OUT_OF_BOUNDS;
+    r3 : deadline.contains(id)    otherwise DEADLINE_REACHED;
+    r4 : now < deadline[id].value otherwise DEADLINE_REACHED;
+  }
+}
+
+entry updateDeadline(id : nat, v : date) {
+  require {
+    r5 : isMinterCaller();
+  }
+  effect {
+    deadline.update(id, { value = v })
+  }
+}

@@ -1,0 +1,420 @@
+/**
+ * The Archetype contract controls the Quartz archetype creation and
+ * ensures that the collection limits are respected.
+ */
+archetype %archetype(
+  admin             : address,
+  whitelist         : option<address>,
+  quartz            : address,
+  archetype_ledger  : address,
+  archetype_balance : address,
+)
+
+//----------------------------------------------------------------------------
+// Constants
+//----------------------------------------------------------------------------
+
+constant ADMIN_CANDIDATE_NOT_SET      : string = "ADMIN_CANDIDATE_NOT_SET"
+constant ARCHETYPE_NOT_REGISTERED     : string = "ARCHETYPE_NOT_REGISTERED"
+constant ARCHETYPE_QUOTA_REACHED      : string = "ARCHETYPE_QUOTA_REACHED"
+constant ARCHLEDGER_NOT_SET           : string = "ARCHLEDGER_NOT_SET"
+constant ARCHOWNER_NOT_SET            : string = "ARCHOWNER_NOT_SET"
+constant BAD_TOKEN_ID                 : string = "BAD_TOKEN_ID"
+constant CALLER_NOT_ADMIN_CANDIDATE   : string = "CALLER_NOT_ADMIN_CANDIDATE"
+constant CANNOT_DECREASE_MAX_BALANCE  : string = "CANNOT_DECREASE_MAX_BALANCE"
+constant CANNOT_UPDATE_NONE_VALUE     : string = "CANNOT_UPDATE_NONE_VALUE"
+constant CONTRACT_NOT_PAUSED          : string = "CONTRACT_NOT_PAUSED"
+constant CONTRACT_PAUSED              : string = "CONTRACT_PAUSED"
+constant GET_ARCHETYPE_ID_FAILED      : string = "GET_ARCHETYPE_ID_FAILED"
+constant INTERNAL_ERROR               : string = "INTERNAL_ERROR"
+constant CALLER_NOT_MINTER            : string = "CALLER_NOT_MINTER"
+constant WHITELIST_ERROR              : string = "WHITELIST_ERROR"
+
+constant SN_RANGE                     : nat    = 100_000
+
+//----------------------------------------------------------------------------
+// Contract execution pause/resume
+//----------------------------------------------------------------------------
+
+variable paused : bool = false
+
+/**
+ * Pause the contract execution
+ */
+entry pause() {
+  called by admin
+  effect {
+    dorequire(not paused, CONTRACT_PAUSED);
+    paused := true
+  }
+}
+
+/**
+ * Resume the contract execution
+ */
+entry unpause() {
+  called by admin
+  effect {
+    dorequire(paused, CONTRACT_NOT_PAUSED);
+    paused := false
+  }
+}
+
+/**
+ * Asserts that the contract execution is not paused
+ */
+function isNotPaused() : bool {
+  if (not paused)
+  then return true
+  else fail(CONTRACT_PAUSED)
+}
+
+
+//----------------------------------------------------------------------------
+// Role management
+//----------------------------------------------------------------------------
+
+constant MINTER         : string = "minter"
+constant CUSTODIAN      : string = "custodian"
+variable adminCandidate : option<address> = none
+
+asset role {
+  rid: string;
+  raddrs : set<address> = [];
+} initialized by {
+  {MINTER;      []};
+  {CUSTODIAN;   []}
+}
+
+/**
+ * Update the admin candidate. It must then be validated by the candidate to be effective
+ */
+entry setAdminCandidate(icandidate : address) {
+  called by admin
+  require { r0 : isNotPaused() }
+  effect  { adminCandidate := some(icandidate) }
+}
+
+/**
+ * Validate the admin candidate
+ */
+entry acceptAdminCandidate() {
+  require { r1 : isNotPaused() }
+  effect {
+    match adminCandidate with
+    | some(v) -> begin
+        dorequire(caller = v, CALLER_NOT_ADMIN_CANDIDATE);
+        admin := v;
+        adminCandidate := none
+      end
+    | none -> fail(ADMIN_CANDIDATE_NOT_SET)
+    end
+  }
+}
+
+/**
+ * Grant a role to an address
+ */
+entry grantRole(irole : string, iaddrs : list<address>) {
+  called by admin
+  require { r2 : isNotPaused() }
+  effect  {
+    for iaddr in iaddrs do
+      role.update(irole, { raddrs = add(role[irole].raddrs, iaddr)})
+    done
+  }
+}
+
+/**
+ * Revoke a role to an address
+ */
+entry revokeRole(irole : string, iaddrs : list<address>) {
+  called by admin
+  require { r3 : isNotPaused() }
+  effect {
+    for iaddr in iaddrs do
+      role.update(irole, { raddrs = remove(role[irole].raddrs, iaddr)})
+    done
+  }
+}
+
+/**
+ * Checks if an address has a given role
+ */
+function isRole(irole : string, a : address) : bool {
+  return role[irole].raddrs.contains(a)
+}
+
+/**
+ * Asserts that the caller has the minter role
+ */
+function isMinterCaller() : bool {
+  if isRole(MINTER, caller)
+  then return true
+  else fail(CALLER_NOT_MINTER)
+}
+
+
+//----------------------------------------------------------------------------
+// Quartz Archetype
+//----------------------------------------------------------------------------
+
+/**
+ * The token id is the sum of the serial number and the archetype id * 100_000
+ */
+function mkTokenId(iarchetypeId : nat, iserialNumber : nat) : nat {
+  return (iarchetypeId * SN_RANGE + iserialNumber)
+}
+
+view getArchetypeId(tokenId : nat) : option<nat> {
+  var res : option<nat> = none;
+  match (tokenId /% SN_RANGE) with
+  | some(v) -> res := some(v[0])
+  | none    -> ()
+  end;
+  return res
+}
+
+/**
+ * Register a new archetype
+ *
+ * @param id The new archetype id
+ * @param mintingValidator The address of the contract that will be called to validate new token creation
+ * @param imaxBalanceAllowed The maximum amount of tokens of this archetype that can be held in a wallet
+ */
+entry registerArchetype(id : nat, mintingValidator : address, imaxBalanceAllowed : nat) {
+  require {
+    r5 : isMinterCaller();
+    r6 : isNotPaused();
+  }
+  effect {
+    transfer 0tz to archetype_ledger call add<nat * address * option<nat>>((id, mintingValidator, some(imaxBalanceAllowed)))
+  }
+}
+
+/**
+ * Validate the transfer of a token and updates the archetype balance tracking
+ *
+ * @param %from The owner of the token being sent
+ * @param %to The recipient
+ * @param tokenId
+ * @sender The account calling the transfer
+ */
+entry applyTokenTransfer(%from : option<address>, %to : address, tokenId : nat, sender : address) {
+  called by selfaddress or quartz
+  require { r7: isNotPaused(); }
+  effect {
+
+  var from_ = match %from with | some(v) -> v | none -> selfaddress end;
+
+  match callview<string>(selfaddress, "validateTransfer", (tokenId, from_, %to, sender)) with
+  | some err -> if err <> "" then fail(err)
+  | none -> fail (INTERNAL_ERROR)
+  end;
+
+  var archetypeId = require_some(require_some(callview<option<nat>>(selfaddress, "getArchetypeId", tokenId), INTERNAL_ERROR), GET_ARCHETYPE_ID_FAILED);
+
+  transfer 0tz to archetype_balance call updateBalance<address * nat* or<nat, nat>>((%to, archetypeId, left<nat>(1)));
+
+  match %from with
+    | some from_ ->
+      transfer 0tz to archetype_balance call updateBalance<address * nat* or<nat, nat>>((from_, archetypeId, right<nat>(1)))
+    | none -> ()
+  end
+  }
+}
+
+/**
+ * Validates that a token transfer respects the whitelist and balance quota requirements
+ *
+ * @param tokenId
+ * @param %from The owner of the token being sent
+ * @param %to The recipient
+ * @sender The account calling the transfer
+ *
+ * @return An empty string if the validation succeeds. The error description if it fails.
+ */
+view validateTransfer(tokenId : nat, %from : address, %to : address, sender : address) : string {
+  var res : string = "";
+  if (not (role[MINTER].raddrs.contains(%to)))
+  then begin
+    match whitelist with
+    | some(w) -> begin
+        match callview<string>(w, "assertTransfer", (sender, %from, %to)) with
+        | some v -> res := v
+        | none -> res := WHITELIST_ERROR
+        end
+    end
+    | none -> ()
+    end
+  end;
+  if res = "" then
+    match callview<string>(selfaddress, "validateBalance", (tokenId, %to)) with
+    | some v -> res := v
+    | none -> res := INTERNAL_ERROR
+    end;
+  return res
+}
+
+/**
+ * Validate that a token transfer respects the archetype balance quota
+ *
+ * @param tokenId
+ * @param %to The recipient
+ *
+ * @return An empty string if the validation succeeds. The error description if it fails.
+ */
+view validateBalance(tokenId : nat, %to : address) : string {
+  var res = "";
+
+  var archetypeId =
+    match require_some(callview<option<nat>>(selfaddress, "getArchetypeId", tokenId), INTERNAL_ERROR) with
+    | some(v) -> v
+    | none -> 0
+    end;
+  if archetypeId = 0
+  then res := BAD_TOKEN_ID
+  else if not (role[CUSTODIAN].raddrs.contains(%to)) then begin
+    var lbalance : nat = 0;
+    match callview<nat>(archetype_balance, "getBalance", (%to, archetypeId)) with
+    | some(b) -> lbalance := b
+    | none    -> res := ARCHOWNER_NOT_SET
+    end;
+    if res = "" then
+      match callview<option<nat>>(archetype_ledger, "getMaxBalance", archetypeId) with
+      | some(m) ->
+        match m with
+        | some (v) -> if not (lbalance < v) then res := ARCHETYPE_QUOTA_REACHED
+        | none -> ()
+        end
+      | none -> res := ARCHLEDGER_NOT_SET
+      end
+  end;
+
+  return res
+}
+
+/**
+ * Mint a new token
+ *
+ * @param account The token recipient
+ * @param iarchetypeId The archetype id
+ * @param iserialNumber the token serial number
+ */
+entry mint(account : address, iarchetypeId : nat, iserialNumber : nat) {
+  require {
+    r8 : isMinterCaller();
+    r9 : isNotPaused();
+  }
+  effect {
+    match callview<bool>(archetype_ledger, "containsArchId", iarchetypeId) with
+    | some(b) -> dorequire(b, ARCHETYPE_NOT_REGISTERED)
+    | none -> fail(ARCHLEDGER_NOT_SET)
+    end;
+    match callview<address>(archetype_ledger, "getValidator", iarchetypeId) with
+    | some(v) -> transfer 0tz to v call validateMint<nat * nat>((iarchetypeId, iserialNumber))
+    | none -> fail(ARCHLEDGER_NOT_SET)
+    end;
+    var tokenId = mkTokenId(iarchetypeId, iserialNumber);
+    transfer 0tz to entry self.applyTokenTransfer(none, account, tokenId, caller);
+    transfer 0tz to quartz call mint<address * nat>((account, tokenId))
+  }
+}
+
+
+//----------------------------------------------------------------------------
+// Royalties configuration
+//----------------------------------------------------------------------------
+
+record part {
+  partAccount : address;
+  partValue   : nat;
+}
+
+view getRoyalties(tokenId : nat) : list<part> {
+  var empty : list<part> = [];
+
+  return
+    match callview<option<nat>>(selfaddress, "getArchetypeId", tokenId) with
+    | some(archId) ->
+      match callview<list<part>>(archetype_ledger, "getRoyalties", archId) with
+      | some v -> v
+      | none -> empty
+      end
+    | none -> empty
+    end
+}
+
+
+//----------------------------------------------------------------------------
+// Contract configuration
+//----------------------------------------------------------------------------
+
+/**
+ * Update the contract metadata URI
+ */
+entry setMetadataUri(idata : bytes) {
+  called by admin
+  require { r4 : isNotPaused() }
+  effect  { metadata := put(metadata, "", idata) }
+}
+
+/**
+ * Set the whitelist contract address
+ */
+entry setWhitelist(iwhitelist : option<address>) {
+  called by admin
+  require { r10 : isNotPaused() }
+  effect  { whitelist := iwhitelist }
+}
+
+/**
+ * Set the Quartz FA2 contract address
+ */
+entry setQuartz(q : address) {
+  called by admin
+  require { r11 : isNotPaused() }
+  effect  { quartz := q }
+}
+
+/**
+ * Set the archetype storage contract address
+ */
+entry setArchLedger(archledger : address) {
+  called by admin
+  require { r12 : isNotPaused() }
+  effect  { archetype_ledger := archledger }
+}
+
+/**
+ * Set the archetype balance tracking contract address
+ */
+entry setArchOwner(archowner : address) {
+  called by admin
+  require { r13 : isNotPaused() }
+  effect  { archetype_balance := archowner }
+}
+
+/**
+ * Update the archetype balance quota
+ *
+ * @param archId The archetype id
+ * @v The new quota. None to disable to quota, Some(v) to set it to v.
+ * Note: the value can only be increased or definitely disabled
+ */
+entry updateMaxBalanceAllowed(archid : nat, v : option<nat>) {
+  called by admin
+  effect {
+    var currentValueOpt = require_some(callview<option<nat>>(archetype_ledger, "getMaxBalance", archid), INTERNAL_ERROR);
+    match currentValueOpt with
+    | some(currentValue) -> begin
+        match v with
+        | some(newValue) -> dorequire(newValue > currentValue, CANNOT_DECREASE_MAX_BALANCE)
+        | none -> ()
+        end;
+        transfer 0tz to archetype_ledger call setMaxBalanceAllowed<nat * option<nat>>((archid, v))
+      end
+    | none -> fail(CANNOT_UPDATE_NONE_VALUE)
+    end
+  }
+}

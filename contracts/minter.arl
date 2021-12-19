@@ -1,0 +1,179 @@
+/**
+ * Minter contract for Quartz. It processes the gasless FA2 coin payment and NFT minting in a single transaction
+ */
+archetype minter(
+  admin  : address,
+  %archetype : address,
+  stablecoin  : address,
+)
+
+
+//----------------------------------------------------------------------------
+// Constants
+//----------------------------------------------------------------------------
+
+constant ADMIN_CANDIDATE_NOT_SET    : string = "ADMIN_CANDIDATE_NOT_SET"
+constant CALLER_NOT_ADMIN_CANDIDATE : string = "CALLER_NOT_ADMIN_CANDIDATE"
+constant CALLER_NOT_MINTER          : string = "CALLER_NOT_MINTER"
+
+
+//----------------------------------------------------------------------------
+// Role management
+//----------------------------------------------------------------------------
+
+/**
+ * The MINTER role allows calling the mintWithPayment entrypoint
+ */
+constant MINTER: string = "minter"
+variable adminCandidate : option<address> = none
+
+asset role {
+  rid: string;
+  raddrs : set<address> = [];
+} initialized by {
+  {MINTER; []}
+}
+
+//----------------------------------------------------------------------------
+// Contract configuration
+//----------------------------------------------------------------------------
+
+/**
+ * Update the admin candidate. It must then be validated by the candidate to be effective
+ */
+entry setAdminCandidate(icandidate : address) {
+  called by admin
+  effect {
+    adminCandidate := some(icandidate)
+  }
+}
+
+/**
+ * Validate the admin candidate
+ */
+entry acceptAdminCandidate() {
+  match adminCandidate with
+  | some(v) -> begin
+      dorequire(caller = v, CALLER_NOT_ADMIN_CANDIDATE);
+      admin := v;
+      adminCandidate := none
+    end
+  | none -> fail(ADMIN_CANDIDATE_NOT_SET)
+  end
+}
+
+/**
+ * Grant a role to an address
+ */
+entry grantRole(irole : string, iaddrs : list<address>) {
+  called by admin
+  effect {
+    for iaddr in iaddrs do
+      role.update(irole, { raddrs = add(role[irole].raddrs, iaddr)})
+    done
+  }
+}
+
+/**
+ * Revoke a role to an address
+ */
+entry revokeRole(irole : string, iaddrs : list<address>) {
+  called by admin
+  effect {
+    for iaddr in iaddrs do
+      role.update(irole, { raddrs = remove(role[irole].raddrs, iaddr)})
+    done
+  }
+}
+
+/**
+ * Checks if an address has a given role
+ */
+function isRole(irole : string, a : address) : bool {
+  return role[irole].raddrs.contains(a)
+}
+
+/**
+ * Asserts that the caller has the minter role
+ */
+function isMinterCaller() : bool {
+  if isRole(MINTER, caller)
+  then return true
+  else fail(CALLER_NOT_MINTER)
+}
+
+
+//----------------------------------------------------------------------------
+// Contract configuration
+//----------------------------------------------------------------------------
+
+variable flat_fees : bool = false
+variable support_fees : bool = true
+
+/**
+ * Update the contract metadata URI
+ */
+entry setMetadataUri(idata : bytes) {
+  called by admin
+  effect {
+    metadata := put(metadata, "", idata)
+  }
+}
+
+/**
+ * Set the archetype contract address
+ */
+entry setArchetype(iarchetype : address) {
+  called by admin
+  effect {
+    %archetype := iarchetype
+  }
+}
+
+/**
+ * Set the Lugh payment contract address
+ */
+entry setStablecoin(istable : address) {
+  called by admin
+  effect {
+    stablecoin := istable
+  }
+}
+
+/**
+ * Enable or disable the Lugh flat fees
+ */
+entry setFlatFees(v : bool) {
+  called by admin
+  effect {
+    flat_fees := v
+  }
+}
+
+/**
+ * Enable or disable the Lugh support fees
+ */
+entry setSupportFees(v : bool) {
+  called by admin
+  effect {
+    support_fees := v
+  }
+}
+
+
+//----------------------------------------------------------------------------
+// Quartz Minter
+//----------------------------------------------------------------------------
+
+/**
+ * Process the signed gasless payment and trigger the minting
+ */
+entry mintWithPayment(archetypeId : nat, serialNumber : nat, vault : address, %amount : nat, pk : key, sig : signature) {
+  require {
+    r0 : isMinterCaller()
+  }
+  effect {
+    transfer 0tz to stablecoin call %transfer_gasless<bool * bool * list<key * list<address * nat * nat> * signature>>((flat_fees, support_fees, [(pk, [(vault, 0, %amount)], sig)]));
+    transfer 0tz to %archetype call mint<address * nat * nat> ((key_address(pk), archetypeId, serialNumber))
+  }
+}

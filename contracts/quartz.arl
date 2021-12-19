@@ -1,0 +1,562 @@
+/**
+ * Quartz NFT contract. Implements the FA-2 standard
+ */
+archetype quartz(admin : address)
+
+
+//----------------------------------------------------------------------------
+// Constants
+//----------------------------------------------------------------------------
+
+constant ADMIN_CANDIDATE_NOT_SET    : string = "ADMIN_CANDIDATE_NOT_SET"
+constant ARCHETYPE_NOT_SET          : string = "ARCHETYPE_NOT_SET"
+constant BAD_SIGNATURE              : string = "BAD_SIGNATURE"
+constant CALLER_NOT_ADMIN_CANDIDATE : string = "CALLER_NOT_ADMIN_CANDIDATE"
+constant CALLER_NOT_OWNER           : string = "CALLER_NOT_OWNER"
+constant CONTRACT_NOT_PAUSED        : string = "CONTRACT_NOT_PAUSED"
+constant CONTRACT_PAUSED            : string = "CONTRACT_PAUSED"
+constant EXPIRED_PERMIT             : string = "EXPIRED_PERMIT"
+constant EXPIRY_TOO_BIG             : string = "EXPIRY_TOO_BIG"
+constant FA2_INSUFFICIENT_BALANCE   : string = "FA2_INSUFFICIENT_BALANCE"
+constant FA2_INVALID_AMOUNT         : string = "INVALID_AMOUNT"
+constant FA2_NOT_OPERATOR           : string = "FA2_NOT_OPERATOR"
+constant FA2_TOKEN_UNDEFINED        : string = "FA2_TOKEN_UNDEFINED"
+constant INTERNAL_ERROR             : string = "INTERNAL_ERROR"
+constant MISSIGNED                  : string = "MISSIGNED"
+constant PERMIT_NOT_FOUND           : string = "PERMIT_NOT_FOUND"
+constant PERMIT_USER_NOT_FOUND      : string = "PERMIT_USER_NOT_FOUND"
+constant SIGNER_NOT_FROM            : string = "SIGNER_NOT_FROM"
+constant USER_NOT_FOUND_FOR_PERMIT  : string = "USER_NOT_FOUND_FOR_PERMIT"
+
+
+//----------------------------------------------------------------------------
+// Contract execution pause/resume
+//----------------------------------------------------------------------------
+
+variable paused : bool = false
+
+/**
+ * Pause the contract execution
+ */
+entry pause () {
+  called by admin
+  effect {
+    dorequire(not paused, CONTRACT_PAUSED);
+    paused := true
+  }
+}
+
+/**
+ * Resume the contract execution
+ */
+entry unpause () {
+  called by admin
+  effect {
+    dorequire(paused, CONTRACT_NOT_PAUSED);
+    paused := false
+  }
+}
+
+/**
+ * Asserts that the contract execution is not paused
+ */
+function isNotPaused() : bool {
+  if (not paused)
+  then return true
+  else fail(CONTRACT_PAUSED)
+}
+
+
+//----------------------------------------------------------------------------
+// Role management
+//----------------------------------------------------------------------------
+
+variable admin_candidate : option<address> = none
+
+/**
+ * Update the admin candidate. It must then be validated by the candidate to be effective
+ */
+entry set_admin_candidate (candidate : address) {
+  called by admin
+  require { r0 : isNotPaused() }
+  effect { admin_candidate := some(candidate) }
+}
+
+/**
+ * Validate the admin candidate
+ */
+entry accept_admin_candidate () {
+  require { r1 : isNotPaused() }
+  effect {
+    match admin_candidate with
+    | some(v) -> begin
+        dorequire(caller = v, CALLER_NOT_ADMIN_CANDIDATE);
+        admin := v;
+        admin_candidate := none
+      end
+    | none -> fail(ADMIN_CANDIDATE_NOT_SET)
+    end
+  }
+}
+
+
+//----------------------------------------------------------------------------
+// Contract configuration
+//----------------------------------------------------------------------------
+
+variable token_metadata_uri : string = ""
+variable %archetype : option<address> = none
+
+entry set_archetype (v : address) {
+  called by admin
+  require { r5 : isNotPaused() }
+  effect  { %archetype := some(v) }
+}
+
+entry set_token_metadata_uri (p : string) {
+  called by admin
+  require { r8 : isNotPaused() }
+  effect { token_metadata_uri := p }
+}
+
+entry set_metadata_uri (uri : bytes) {
+  called by admin
+  require { r9 : isNotPaused() }
+  effect {
+    metadata := put(metadata, "", uri)
+  }
+}
+
+
+//----------------------------------------------------------------------------
+// TZIP-17: Permit
+//----------------------------------------------------------------------------
+
+variable default_expiry : nat = 31556952
+
+record user_permit {
+  expiry : option<nat>;
+  created_at : date;
+}
+
+asset permits to big_map {
+  user_address : address;
+  counter      : nat = 0;
+  user_expiry  : option<nat> = none;
+  user_permits : map<bytes, user_permit> = [];
+}
+
+function getDefaultExpiry(addr : address) : option<nat> {
+  var res : option<nat> = some(default_expiry);
+  if permits.contains(addr) then
+  match permits[addr].user_expiry with
+  | some v -> res := some(v)
+  | none -> ()
+  end;
+  return res
+}
+
+function hasExpired(iuser_permit : user_permit) : bool {
+  match iuser_permit.expiry with
+  | some(v) -> return (iuser_permit.created_at + (v * 1s) < now)
+  | none -> return false
+  end
+}
+
+entry permit (pk : key, sig : signature, data : bytes) {
+  require {
+    p0: isNotPaused()
+  }
+  effect {
+    var user : address = key_address(pk);
+    var empty : map<bytes, user_permit> = [];
+    var pcounter_user_permits : (nat * map<bytes, user_permit>) = if permits.contains(user) then (permits[user].counter, permits[user].user_permits) else (0, empty);
+    var pcounter = pcounter_user_permits[0];
+    var puser_permits = pcounter_user_permits[1];
+    var tosign : bytes = pack(((selfaddress, chainid), (pcounter, data)));
+    dorequire(check_signature(pk, sig, tosign), (MISSIGNED, tosign));
+    var lexpiry = getDefaultExpiry(user);
+    permits.addupdate(user, { counter += 1; user_permits = put(puser_permits, data, { expiry = lexpiry; created_at = now})});
+    for (k, v) in permits[user].user_permits do
+      if hasExpired(v)
+      then permits[user].user_permits.remove(k)
+    done
+  }
+}
+
+entry set_default_expiry (v : nat) {
+  called by admin
+  effect {
+    default_expiry := v
+  }
+}
+
+entry set_expiry (v : option<nat>, p : option<bytes>) {
+  require { r7: isNotPaused() }
+  effect {
+    match v with
+      | some v_expiry ->
+          dofailif(v_expiry >= default_expiry, EXPIRY_TOO_BIG)
+      | none -> ()
+    end;
+    if permits.contains(caller)
+    then begin
+      match p with
+      | some lpermit ->
+        if permits[caller].user_permits.contains(lpermit)
+        then begin
+          var need_update = true;
+          match v with
+            | some v_expiry ->
+              begin
+                if v_expiry = 0 then
+                begin
+                  need_update := false;
+                  permits[caller].user_permits.remove(lpermit)
+                end
+              end
+            | none -> ()
+          end;
+          if need_update then
+          begin
+            var up : user_permit = permits[caller].user_permits[lpermit];
+            permits[caller].user_permits.update(lpermit, some({up with expiry = v}))
+          end
+        end
+        else fail ((PERMIT_NOT_FOUND, (caller, lpermit)))
+      | none -> permits.update(caller, { user_expiry = v })
+      end
+    end
+    else fail ((PERMIT_USER_NOT_FOUND, caller))
+  }
+}
+
+view get_counter(user : address) : nat {
+  if permits.contains(user)
+  then return permits[user].counter
+  else return 0
+}
+
+record transfer_destination {
+  to_dest           : address;
+  token_id_dest     : nat;
+  token_amount_dest : nat
+} as ((%to, (token_id, amount)))
+
+view check_permit(expectedUser : address, permitkey : bytes) : string {
+  var res : string = "";
+
+  if not permits.contains(expectedUser)
+  then res := USER_NOT_FOUND_FOR_PERMIT
+  else if not permits[expectedUser].user_permits.contains(permitkey)
+  then res := FA2_NOT_OPERATOR
+  else (
+    var iuser_permit = permits[expectedUser].user_permits[permitkey];
+    var iexpiry : nat =
+      (match iuser_permit.expiry with
+      | some (v) -> v
+      | none ->
+        match permits[expectedUser].user_expiry with
+        | some (v) -> v
+        | none -> default_expiry
+        end
+      end);
+    if (iuser_permit.created_at + (iexpiry * 1s) < now)
+    then res := EXPIRED_PERMIT
+  );
+  return res
+}
+
+entry consume_permit (expected_user : address, permitkey : bytes) {
+  called by selfaddress
+  effect{
+    match callview<string>(selfaddress, "check_permit", (expected_user, permitkey)) with
+    | some v ->
+      if v = ""
+      then permits[expected_user].user_permits.remove(permitkey)
+      else fail (v)
+    | none -> fail(INTERNAL_ERROR)
+    end;
+  }
+}
+
+
+//----------------------------------------------------------------------------
+// FA-2
+//----------------------------------------------------------------------------
+
+asset ledger to big_map {
+  ltoken     : nat;
+  lowner     : address;
+}
+
+asset operator identified by oaddr otoken oowner to big_map {
+  oaddr       : address;
+  otoken      : nat;
+  oowner      : address;
+  oempty      : unit = Unit;
+}
+
+asset operator_for_all identified by fa_oaddr fa_oowner to big_map {
+  fa_oaddr    : address;
+  fa_oowner   : address;
+  fa_empty    : unit = Unit;
+}
+
+record operator_param {
+  opp_owner    : address;
+  opp_operator : address;
+  opp_token_id : nat
+} as ((owner, (operator, token_id)))
+
+entry update_operators (upl : list<or<operator_param, operator_param>>) {
+  require { r2 : isNotPaused() }
+  effect {
+    for up in upl do
+      match up with
+      | left(param)  -> (* add *)
+        dorequire(param.opp_owner = caller, CALLER_NOT_OWNER);
+        operator.add({oaddr = param.opp_operator; otoken = param.opp_token_id; oowner = param.opp_owner })
+      | right(param) -> (* remove *)
+        dorequire(param.opp_owner = caller, CALLER_NOT_OWNER);
+        operator.remove((param.opp_operator, param.opp_token_id, param.opp_owner))
+      end;
+    done
+  }
+}
+
+entry update_operators_for_all (upl : list<or<address, address>>) {
+  require { r3 : isNotPaused() }
+  effect {
+    for up in upl do
+      match up with
+      | left(op)  -> (* add *)
+        operator_for_all.add({fa_oaddr = op; fa_oowner = caller})
+      | right(op) -> (* remove *)
+        operator_for_all.remove((op, caller))
+      end;
+    done
+  }
+}
+
+function checkOperator(txs : list<address * list<transfer_destination>>) : bool {
+  var res = true;
+
+  for tx in txs do
+    var %from = tx[0];
+    var tds = tx[1];
+    for td in tds do begin
+      res &= caller = %from or operator_for_all.contains((caller, %from)) or operator.contains((caller, td.token_id_dest, %from))
+    end
+    done
+  done;
+  return res
+}
+
+function getFromAddress(txs : list<address * list<transfer_destination>>) : (option<address> * string) {
+  var res : (option<address> * string) = (none, "");
+
+  match txs with
+  | hd::tl -> begin
+    var %from = hd[0];
+    var err = "";
+    for tx in tl do
+      if %from <> tx[0]
+      then (err := FA2_NOT_OPERATOR)
+    done;
+    res := (some(%from), err)
+  end
+  | [] -> ()
+  end;
+
+  return res
+}
+
+/**
+ * Check if a token can be transferred
+ *
+ * @param tokenid The token id
+ * @param from_ The owner of the token
+ * @param to_ The recipient
+ *
+ * @return An empty string if the transfer is allowed. An error description otherwise
+ */
+getter can_transfer(tokenid : nat, from_ : address, to_ : address) : string {
+  var res : string = "";
+
+  var txs : list<address * list<transfer_destination>> = [(from_, [{to_dest = to_; token_id_dest = tokenid; token_amount_dest = 1}])];
+  if not checkOperator(txs) then begin
+    var fromAddress = getFromAddress(txs);
+    var err = fromAddress[1];
+    if err <> ""
+    then res := err
+    else begin
+      match fromAddress[0] with
+      | some(%from) -> begin
+        match (callview<string>(selfaddress, "check_permit", (%from, blake2b(pack(txs))))) with
+        | some v -> res := v
+        | none -> res := INTERNAL_ERROR
+        end
+      end
+    | none -> ()
+    end
+    end
+  end;
+  if res = "" then begin
+    match %archetype with
+    | some addr -> begin
+        match callview<string>(addr, "validateTransfer", (tokenid, from_, to_, caller)) with
+        | some v -> res := v
+        | none -> res := INTERNAL_ERROR
+        end
+      end
+    | none -> res := ARCHETYPE_NOT_SET
+    end
+  end;
+
+  return res
+}
+
+/**
+ * Transfer a token
+ *
+ * @param txs the list of transfers (from => list of token_destination)
+ */
+entry %transfer (txs : list<address * list<transfer_destination>>) {
+  require { r4 : isNotPaused() }
+  effect {
+  if not checkOperator(txs) then begin
+    var fromAddress = getFromAddress(txs);
+    var err = fromAddress[1];
+    if err <> "" then fail(err);
+    match fromAddress[0] with
+    | some(%from) -> begin
+      transfer 0tz to entry self.consume_permit(%from, blake2b(pack(txs)))
+    end
+    | none -> ()
+    end
+  end;
+  for tx in txs do
+    var %from = tx[0];
+    var tds = tx[1];
+    for td in tds do begin
+      var %to = td.to_dest;
+      (* set token ownership *)
+      var tokenid = td.token_id_dest;
+      if ledger.contains(tokenid) then
+        dorequire(ledger[tokenid].lowner = %from, FA2_INSUFFICIENT_BALANCE)
+      else fail(FA2_TOKEN_UNDEFINED);
+      if td.token_amount_dest <> 1 then
+        fail(FA2_INVALID_AMOUNT)
+      else
+        ledger.update(tokenid, { lowner = %to });
+      transfer 0tz to require_some(%archetype, ARCHETYPE_NOT_SET) call applyTokenTransfer<option<address> * address * nat * address>((some(%from), %to, tokenid, caller));
+    end done;
+  done
+  }
+}
+
+// transfer gasless
+entry transfer_gasless (batch : list<list<address * list<transfer_destination>> * (key * signature)>) {
+  for b in batch do
+    var pk  = b[1][0];
+    var sig = b[1][1];
+    var pkh = key_address(pk);
+
+    var lcounter = if permits.contains(pkh) then permits[pkh].counter else 0;
+    var data : bytes = pack((selfaddress, lcounter, blake2b(pack(b[0]))));
+    if not check_signature(pk, sig, data) then fail((BAD_SIGNATURE, data));
+    permits.addupdate(pkh, { counter = (lcounter + 1)});
+
+    for tx in b[0] do
+      var %from = tx[0];
+      var tds = tx[1];
+      dorequire(pkh = %from, (SIGNER_NOT_FROM, (pkh, %from)));
+      for td in tds do begin
+        var %to = td.to_dest;
+        (* set token ownership *)
+        var tokenid = td.token_id_dest;
+        if ledger.contains(tokenid) then
+          dorequire(ledger[tokenid].lowner = %from, FA2_INSUFFICIENT_BALANCE)
+        else fail(FA2_TOKEN_UNDEFINED);
+        if td.token_amount_dest <> 1 then
+          fail(FA2_INVALID_AMOUNT)
+        else
+          ledger.update(tokenid, { lowner = %to });
+        transfer 0tz to require_some(%archetype, ARCHETYPE_NOT_SET) call applyTokenTransfer<option<address> * address * nat * address>((some(%from), %to, tokenid, caller));
+      end done;
+    done
+  done
+}
+
+record balance_of_request {
+  bo_owner : address;
+  btoken_id : nat;
+} as ((owner, token_id))
+
+record balance_of_response {
+  request : balance_of_request;
+  balance_ : nat;
+} as ((request, balance))
+
+getter balance_of (requests : list<balance_of_request>) : list<balance_of_response> {
+  return map(requests, br -> {
+    request = br;
+    balance_ = (
+      if ledger.contains(br.btoken_id) then
+        if ledger[br.btoken_id].lowner = br.bo_owner then
+          1
+        else
+          0
+      else
+        0
+    )
+  })
+}
+
+/**
+ * Mint a new token
+ *
+ * @param account The recipient
+ * @param tokenid The token id
+ * Note: only callable by the archetype contract
+ */
+entry mint (account : address, tokenid : nat) {
+  called by require_some(%archetype, ARCHETYPE_NOT_SET)
+  require { r6 : isNotPaused() }
+  effect  { ledger.add({ tokenid; account }); }
+}
+
+/**
+ * Check the owner of a token
+ *
+ * @param tokenid The token id
+ * @return The owner wallet address, None if the token does not exist
+ */
+view owner_of(tokenid : nat) : option<address> {
+  return (if ledger.contains(tokenid) then some(ledger[tokenid].lowner) else none<address>)
+}
+
+
+//----------------------------------------------------------------------------
+// Royalties
+//----------------------------------------------------------------------------
+
+record part {
+  partAccount : address;
+  partValue   : nat;
+}
+
+view get_royalties(tokenid : nat) : list<part> {
+  var empty : list<part> = [];
+
+  return
+    match %archetype with
+    | some (arch) ->
+      match callview<list<part>>(arch, "getRoyalties", tokenid) with
+      | some v -> v
+      | none -> empty
+      end
+    | none -> empty
+    end
+}

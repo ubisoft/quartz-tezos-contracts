@@ -1,0 +1,142 @@
+archetype simpleMintingValidator(admin : address)
+
+//----------------------------------------------------------------------------
+// Constants
+//----------------------------------------------------------------------------
+
+constant ADMIN_CANDIDATE_NOT_SET      : string = "ADMIN_CANDIDATE_NOT_SET"
+constant CALLER_NOT_ADMIN_CANDIDATE   : string = "CALLER_NOT_ADMIN_CANDIDATE"
+constant MINTING_LIMIT_ALREADY_SET    : string = "MINTING_LIMIT_ALREADY_SET"
+constant CALLER_NOT_MINTER            : string = "CALLER_NOT_MINTER"
+constant SERIAL_NUMBER_OUT_OF_BOUNDS  : string = "SERIAL_NUMBER_OUT_OF_BOUNDS"
+
+//----------------------------------------------------------------------------
+// Role management
+//----------------------------------------------------------------------------
+
+variable adminCandidate : option<address> = none
+
+/**
+ * Update the admin candidate. It must then be validated by the candidate to be effective
+ */
+entry setAdminCandidate(icandidate : address) {
+  called by admin
+  effect { adminCandidate := some(icandidate) }
+}
+
+/**
+ * Validate the admin candidate
+ */
+entry acceptAdminCandidate() {
+  effect {
+    match adminCandidate with
+    | some(v) -> begin
+        dorequire(caller = v, CALLER_NOT_ADMIN_CANDIDATE);
+        admin := v;
+        adminCandidate := none
+      end
+    | none -> fail(ADMIN_CANDIDATE_NOT_SET)
+    end
+  }
+}
+
+/**
+ * Update the contract metadata URI
+ */
+entry setMetadataUri(idata : bytes) {
+  called by admin
+  effect {
+    metadata := put(metadata, "", idata)
+  }
+}
+
+//----------------------------------------------------------------------------
+// Role management
+//----------------------------------------------------------------------------
+
+constant MINTER: string = "minter"
+asset role {
+  rid: string;
+  raddrs : set<address> = [];
+} initialized by {
+  {MINTER; []}
+}
+
+/**
+ * Grant a role to an address
+ */
+entry grantRole(irole : string, iaddrs : list<address>) {
+  called by admin
+  effect {
+    for iaddr in iaddrs do
+      role.update(irole, { raddrs = add(role[irole].raddrs, iaddr)})
+    done
+  }
+}
+
+/**
+ * Revoke a role to an address
+ */
+entry revokeRole(irole : string, iaddrs : list<address>) {
+  called by admin
+  effect {
+    for iaddr in iaddrs do
+      role.update(irole, { raddrs = remove(role[irole].raddrs, iaddr)})
+    done
+  }
+}
+
+/**
+ * Checks if an address has a given role
+ */
+function isRole(irole : string, a : address) : bool {
+  return role[irole].raddrs.contains(a)
+}
+
+/**
+ * Asserts that the caller has the minter role
+ */
+function isMinterCaller() : bool {
+  if isRole(MINTER, caller)
+  then return true
+  else fail(CALLER_NOT_MINTER)
+}
+
+
+//----------------------------------------------------------------------------
+// Quartz Minting limited edition collections
+//----------------------------------------------------------------------------
+
+asset mintingLimits to big_map {
+  archid : nat;
+  limit  : nat;
+}
+
+/**
+ * Set the collection size. This will limit serial number generation into these bounds
+ *
+ * @param id The archetype id
+ * @param lim The size of the collection
+ */
+entry setMintingLimit(id : nat, lim : nat) {
+  require {
+    r0 : isMinterCaller();
+    r1 : not mintingLimits.contains(id) otherwise MINTING_LIMIT_ALREADY_SET
+  }
+  effect {
+    mintingLimits.add({ id; lim })
+  }
+}
+
+/**
+ * Assert that a given serial number is within the collection bounds
+ *
+ * @param id The archetype id
+ * @param serialNr
+ */
+entry validateMint(id: nat, serialNr : nat) {
+  require {
+    r2: mintingLimits.contains(id) otherwise SERIAL_NUMBER_OUT_OF_BOUNDS;
+    r3: serialNr > 0 and serialNr <= mintingLimits[id].limit otherwise SERIAL_NUMBER_OUT_OF_BOUNDS
+  }
+}

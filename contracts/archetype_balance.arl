@@ -1,0 +1,116 @@
+/**
+ * Storage contract for Quartz balance per archetype
+ */
+archetype archetype_balance(admin: address)
+
+asset ownerData identified by od_addr od_archetypeId to big_map {
+  od_addr        : address;
+  od_archetypeId : nat;
+  od_balance     : nat = 0;
+}
+
+//----------------------------------------------------------------------------
+// Constants
+//----------------------------------------------------------------------------
+
+constant ADMIN_CANDIDATE_NOT_SET    : string = "ADMIN_CANDIDATE_NOT_SET"
+constant CALLER_NOT_ADMIN_CANDIDATE : string = "CALLER_NOT_ADMIN_CANDIDATE"
+
+//----------------------------------------------------------------------------
+// Contract configuration
+//----------------------------------------------------------------------------
+
+/**
+ * Update the contract metadata URI
+ */
+entry setMetadataUri(idata : bytes) {
+  called by admin
+  effect  { metadata := put(metadata, "", idata) }
+}
+
+/**
+ * Set the Quartz archetype contract
+ */
+
+variable %archetype : option<address> = none
+
+entry setArchetype(a : address) {
+  called by admin
+  effect { %archetype := some(a) }
+}
+
+//----------------------------------------------------------------------------
+// Role management
+//----------------------------------------------------------------------------
+
+variable adminCandidate : option<address> = none
+
+/**
+ * Update the admin candidate. It must then be validated by the candidate to be effective
+ */
+entry setAdminCandidate(icandidate : address) {
+  called by admin
+  effect { adminCandidate := some(icandidate) }
+}
+
+/**
+ * Validate the admin candidate
+ */
+entry acceptAdminCandidate() {
+  effect {
+    match adminCandidate with
+    | some(v) -> begin
+        dorequire(caller = v, CALLER_NOT_ADMIN_CANDIDATE);
+        admin := v;
+        adminCandidate := none
+      end
+    | none -> fail(ADMIN_CANDIDATE_NOT_SET)
+    end
+  }
+}
+
+//----------------------------------------------------------------------------
+// Views
+//----------------------------------------------------------------------------
+
+/**
+ * Reads a wallet balance
+ *
+ * @param tz1 The wallet address
+ * @param aid The archetype id
+ * @return The number of tokens owned by this address of the given archetype
+ */
+view getBalance(tz1 : address, aid : nat) : nat {
+  var k = (tz1, aid);
+  return (
+    if ownerData.contains(k)
+    then ownerData[k].od_balance
+    else 0
+  )
+}
+
+//----------------------------------------------------------------------------
+// Setters
+//----------------------------------------------------------------------------
+
+enum update_balance_op =
+| Incr<nat>
+| Decr<nat>
+
+/**
+ * Update the owner balance for a given archetype
+ *
+ * @param pkh The token owner
+ * @param aid The archetype ID
+ * @param incr Increase or decrease the balance with the specified operator
+ */
+entry updateBalance(pkh : address, aid : nat, incr : update_balance_op) {
+  called by opt_get(%archetype)
+  effect {
+    var k = (pkh, aid);
+    match incr with
+    | Incr(v) -> ownerData.addupdate(k, { od_balance += v })
+    | Decr(v) -> ownerData.addupdate(k, { od_balance -= v })
+    end
+  }
+}
