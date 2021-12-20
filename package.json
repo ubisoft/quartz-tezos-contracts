@@ -13,16 +13,13 @@
     "deploy": "mocha --timeout 0 --slow 99999999999999999 ./scripts/deploy.js",
     "deploy_lugh": "mocha --timeout 0 --slow 99999999999999999 ./scripts/deploy_lugh.js",
     "deploy_whitelist": "mocha --timeout 0 --slow 99999999999999999 ./scripts/deploy_whitelist.js",
-    "deploy_quartz": "mocha --timeout 0 --slow 99999999999999999 ./scripts/deploy_quartz.js"
+    "deploy_quartz": "mocha --timeout 0 --slow 99999999999999999 ./scripts/deploy_quartz.js",
+    "postinstall": "git submodule init && git submodule update --remote"
   },
-  "postinstall": "git submodule init && git submodule update --remote",
   "dependencies": {
     "@completium/completium-cli": "^0.3.17",
     "@taquito/taquito": "^11.0.2",
     "chai": "^4.3.4",
     "mocha": "^9.1.2"
-  },
-  "devDependencies": {
-    "@completium/completium-cli": "^0.3.17"
   }
 }
