@@ -3,7 +3,7 @@
 Tezos smart contracts for [Ubisoft Quartz](https://quartz.ubisoft.com) NFT written in [Archetype](https://archetype-lang.org/).
 
 ## Architecture
-The Quartz NFT (also known as Digits) are non-fungible [FA2 tokens](https://tezos.b9lab.com/fa2). Token inting and transfer is supervised by a contract that guarantees the Quartz rules such as collection size, whitelisting and quotas.
+The Quartz NFT (also known as Digits) are non-fungible [FA2 tokens](https://tezos.b9lab.com/fa2). Token minting and transfer is supervised by a contract that guarantees the Quartz rules such as collection size, whitelisting and quotas.
 
 Each Quartz item type is referred here as an archetype. An archetype is a collection where each item has the same properties except for the unique serial number, owner and history.
 
@@ -49,34 +49,23 @@ To enable primary market NFT sales, a minter contract processes feeless stableco
 
 ## Build, test, and deploy
 
-Contracts are built using the [Completium](https://completium.com/) toolkit. The kit comes with a CLI that enables various tasks:
+Contracts are built using the [Completium](https://completium.com/) toolkit. The kit comes with a CLI that enables various tasks. 
 
-Global completium-cli installation:
-```console
-npm install -g @completium/completium-cli
-```
+Install [tezos-client](https://assets.tqtezos.com/docs/setup/1-tezos-client/).
 
-In the contract repository, install the NPM depedencies:
+Then, in the contract repository, install the NPM depedencies:
 ```console
 npm install
 ```
-
-Initialize the whitelist smart contracts submodule:
-```console
-git submodule init
-git submodule update --remote
-```
-
 Setup accounts and initialize mockup chain
 ```console
-completium-cli init
-completium-cli generate account as quartz_admin
-completium-cli generate account as quartz_minter
-completium-cli generate account as quartz_whitelister
-completium-cli generate account as quartz_user
-completium-cli mockup init
+npx completium-cli init
+npx completium-cli generate account as quartz_admin
+npx completium-cli generate account as quartz_minter
+npx completium-cli generate account as quartz_whitelister
+npx completium-cli generate account as quartz_user
+npx completium-cli mockup init
 ```
-
 
 Run unit tests
 ```console
