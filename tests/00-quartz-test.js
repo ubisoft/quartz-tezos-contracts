@@ -1,12 +1,10 @@
-const { deploy, getAccount, setQuiet, expectToThrow, setMockupNow, setEndpoint } = require('@completium/completium-cli');
+const { deploy, getAccount, setQuiet, expectToThrow, setMockupNow, getEndpoint } = require('@completium/completium-cli');
 const { generateArchetypeId, pauseAndVerify, unpauseAndVerify, getArchetypeData, getFA2Balance, getQuartzOwner, getQuartzUri, getTokenId, checkFA2Balance, errors } = require('./utils');
 const assert = require('assert');
 
-setQuiet("true");
+setQuiet(true);
 
-const mockup_mode = true;
-
-setEndpoint(mockup_mode ? 'mockup' : 'https://testnet-tezos.giganode.io/')
+const mockup_mode = getEndpoint() === 'mockup'
 
 // contracts
 let whitelist_users;
@@ -24,11 +22,11 @@ let fa2getbalanceof;
 const admin = getAccount(mockup_mode ? 'alice' : "quartz_admin");
 const whitelister = getAccount(mockup_mode ? 'bob' : "quartz_whitelister");
 const minter = getAccount(mockup_mode ? 'carl' : "quartz_minter");
-const recipient0 = getAccount(mockup_mode ? 'bootstrap1' : "quartz_recipient0");
-const recipient1 = getAccount(mockup_mode ? 'bootstrap2' : "quartz_recipient1");
-const recipient2 = getAccount(mockup_mode ? 'bootstrap3' : "quartz_recipient2");
-const recipient3 = getAccount(mockup_mode ? 'bootstrap4' : "quartz_recipient3");
-const recipient4 = getAccount(mockup_mode ? 'bootstrap5' : "quartz_recipient4");
+const recipient0 = getAccount('bootstrap1');
+const recipient1 = getAccount('bootstrap2');
+const recipient2 = getAccount('bootstrap3');
+const recipient3 = getAccount('bootstrap4');
+const recipient4 = getAccount('bootstrap5');
 
 const recipients = [recipient0, recipient1, recipient2, recipient3, recipient4];
 
@@ -396,11 +394,6 @@ describe("Archetype", async () => {
       })
     }, errors.MINTING_LIMIT_ALREADY_SET)
   });
-  // does not make sense on Tezos since address 0 does not exist
-  //it("Minter should not be able to register an invalid archetype", async function() {
-  //  await expect(archetype.minter.registerArchetype(archetype2, ethers.constants.AddressZero, 4))
-  //    .to.be.revertedWith(reverts.ARCHETYPE_INVALID_VALIDATOR)
-  //})
   it("Should not be able to mint tokens with serial out of archetype limits", async function () {
     await expectToThrow(async () => {
       const tokenId = getTokenId(archetype1, 0);

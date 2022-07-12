@@ -1,11 +1,9 @@
-const { deploy, originate, getAccount, setQuiet, setEndpoint, sign, exprMichelineToJson, packTyped } = require('@completium/completium-cli');
+const { deploy, originate, getAccount, setQuiet, getEndpoint, setEndpoint, sign, exprMichelineToJson, packTyped } = require('@completium/completium-cli');
 const { generateArchetypeId, checkFA2Balance, getFA2Balance } = require('./utils');
 
-setQuiet("true");
+setQuiet(true);
 
-const mockup_mode = true;
-
-setEndpoint(mockup_mode ? 'mockup' : 'https://hangzhounet.smartpy.io')
+const mockup_mode = getEndpoint() === 'mockup'
 
 // contracts
 let lugh_fee_managers;

@@ -1,11 +1,10 @@
-const { deploy, getAccount, packTyped, setQuiet, blake2b, expectToThrow, setMockupNow, exprMichelineToJson, sign, setEndpoint } = require('@completium/completium-cli');
+const { deploy, getAccount, packTyped, setQuiet, blake2b, exprMichelineToJson, sign, getEndpoint, setEndpoint } = require('@completium/completium-cli');
 const { generateArchetypeId, pauseAndVerify, unpauseAndVerify, checkFA2Balance, getTokenId, errors } = require('./utils');
 const assert = require('assert');
 
-setQuiet("true");
-setEndpoint("mockup")
+setQuiet(true);
 
-const mockup_mode = true;
+const mockup_mode = getEndpoint() === 'mockup'
 
 // contracts
 let whitelist;

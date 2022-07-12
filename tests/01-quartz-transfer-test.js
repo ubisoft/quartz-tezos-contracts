@@ -1,10 +1,10 @@
-const { deploy, getAccount, setQuiet, expectToThrow, runGetter } = require('@completium/completium-cli');
+const { deploy, getAccount, setQuiet, expectToThrow, runGetter, getEndpoint } = require('@completium/completium-cli');
 const { generateArchetypeId, pauseAndVerify, unpauseAndVerify, checkFA2Balance, getTokenId, errors } = require('./utils');
 const assert = require('assert');
 
-setQuiet("true");
+setQuiet(true);
 
-const mockup_mode = true;
+const mockup_mode = getEndpoint() === 'mockup'
 
 // contracts
 let whitelist_users;
