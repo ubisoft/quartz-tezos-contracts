@@ -59,12 +59,14 @@ npm install
 ```
 Setup accounts and initialize mockup chain
 ```console
-npx completium-cli init
-npx completium-cli generate account as quartz_admin
-npx completium-cli generate account as quartz_minter
-npx completium-cli generate account as quartz_whitelister
-npx completium-cli generate account as quartz_user
-npx completium-cli mockup init
+alias ccli="npx completium-cli"
+ccli init
+ccli generate account as quartz_admin
+ccli generate account as quartz_minter
+ccli generate account as quartz_whitelister
+ccli generate account as quartz_user
+mkdir -p ~/.completium/mockup # mockup folder is missing in some setups
+ccli mockup init
 ```
 
 Run unit tests
