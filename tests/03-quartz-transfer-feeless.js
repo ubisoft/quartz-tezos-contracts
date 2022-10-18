@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright © 2021-2022 UBISOFT
+
 const { deploy, getAccount, packTyped, setQuiet, blake2b, exprMichelineToJson, sign, getEndpoint, setEndpoint } = require('@completium/completium-cli');
 const { generateArchetypeId, pauseAndVerify, unpauseAndVerify, checkFA2Balance, getTokenId, errors } = require('./utils');
 const assert = require('assert');

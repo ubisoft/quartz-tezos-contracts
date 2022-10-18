@@ -1,26 +1,24 @@
-const { isMockup, getValueFromBigMap, exprMichelineToJson, packTyped, packTypedAll, blake2b, getAddress, sign, taquitoExecuteSchema, keccak } = require('@completium/completium-cli');
-const assert = require('assert');
+// SPDX-License-Identifier: Apache-2.0
+// Copyright © 2021-2022 UBISOFT
 
-function getRandomInt(max) {
-  return Math.floor(Math.random() * max);
-}
+const { isMockup, getValueFromBigMap, exprMichelineToJson, taquitoExecuteSchema } = require('@completium/completium-cli');
+const assert = require('assert');
 
 let cpt = 0;
 exports.generateArchetypeId = () => {
-  // return ethers.utils.hexZeroPad(randomBytes(32))
   return ++cpt;
 }
 
 exports.pauseAndVerify = async (c, a) => {
   await c.pause({ as: a.pkh });
   let storage = await c.getStorage();
-  assert(storage.paused == true, "contract should be paused");
+  assert(storage.paused, "contract should be paused");
 }
 
 exports.unpauseAndVerify = async (c, a) => {
   await c.unpause({ as: a.pkh });
   let storage = await c.getStorage();
-  assert(storage.paused == false, "contract should not be paused");
+  assert(!storage.paused, "contract should not be paused");
 }
 
 exports.getArchetypeData = async (c, key) => {
@@ -33,7 +31,7 @@ exports.getArchetypeData = async (c, key) => {
     const r = taquitoExecuteSchema(jval, tval);
     return r;
   } else {
-    return await storage.archetypeLedger.get(key);
+    return storage.archetypeLedger.get(key);
   }
 }
 
@@ -162,30 +160,6 @@ exports.checkFA2Balance = (gbfa2) => {
     }
   }
 }
-
-// const transferParamType = exprMichelineToJson("(list (pair (address %from_) (list %txs (pair (address %to_) (nat %token_id) (nat %amount)))))");
-// const permitDataType = exprMichelineToJson("(pair (pair address chain_id) (pair nat bytes))");
-
-// exports.mkTransferPermit = async (from, to, amount, tokenid, permit_counter) => {
-//   const michelsonData = `{ Pair "${from.pkh}" { Pair "${to.pkh}" (Pair ${tokenid} ${amount}) } }`;
-//   const transferParam = exprMichelineToJson(michelsonData);
-//   const permit = packTyped(transferParam, transferParamType);
-//   const hashPermit = blake2b(permit);
-//   const fa2Address = getAddress('fa2-feeless-wrapper');
-//   const chainid = isMockup() ? "NetXynUjJNZm7wi" : "NetXz969SFaFn8k"; // else granada
-//   const permitData = exprMichelineToJson(`(Pair (Pair "${fa2Address}" "${chainid}") (Pair ${permit_counter} 0x${hashPermit}))`);
-//   const tosign = packTyped(permitData, permitDataType);
-//   const signature = await sign(tosign, { as: from.name });
-//   return { hash: hashPermit, sig: signature };
-// }
-
-// const tokenIdType = {
-//   prim: 'pair',
-//   args: [
-//     { prim: 'nat' },
-//     { prim: 'nat' }
-//   ]
-// }
 
 exports.getTokenId = (archetypeid, serial) => {
   return archetypeid * 100_000 + serial

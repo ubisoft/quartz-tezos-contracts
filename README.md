@@ -1,4 +1,4 @@
-# Quartz contracts
+# Ubisoft Quartz contracts
 
 Tezos smart contracts for [Ubisoft Quartz](https://quartz.ubisoft.com) NFT written in [Archetype](https://archetype-lang.org/).
 
@@ -73,3 +73,11 @@ Run unit tests
 ```console
 npm test
 ```
+
+# License
+
+The Quartz contracts are available under the [Apache 2.0 License](LICENSE.md)
+
+# Credits
+
+The Quartz Smart Contracts were ported to Archetype with the help from [Nomadic Labs](https://www.nomadic-labs.com) and the [Completium](https://completium.com) team: [Benoit Rognier](https://www.linkedin.com/in/benoitrognier) and [Guillaume Duhamel](https://www.linkedin.com/in/guillaumeduhamel)
