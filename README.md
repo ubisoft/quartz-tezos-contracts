@@ -9,6 +9,9 @@ Each Quartz item type is referred here as an archetype. An archetype is a collec
 
 Each archetype is defined by its id, the quota per wallet, and a contract that is responsible for the minting conditions. As of today, the only minting conditions is the collection size limit which only validates that the serial number is within the bounds.
 
+## Security
+The Quartz contracts have been audited by Apriorit. The report can be found [here](audits/NomadicLabs%20audit%20-%20Ubisoft%20v2.pdf).
+
 ## Contracts
 
 ### Quartz FA2
