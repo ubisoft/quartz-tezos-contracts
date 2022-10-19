@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright © 2021-2022 UBISOFT
+
 /**
  * Minter contract for Quartz. It processes the gasless FA2 coin payment and NFT minting in a single transaction
  */

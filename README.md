@@ -1,4 +1,4 @@
-# Quartz contracts
+# Ubisoft Quartz contracts
 
 Tezos smart contracts for [Ubisoft Quartz](https://quartz.ubisoft.com) NFT written in [Archetype](https://archetype-lang.org/).
 
@@ -8,6 +8,9 @@ The Quartz NFT (also known as Digits) are non-fungible [FA2 tokens](https://tezo
 Each Quartz item type is referred here as an archetype. An archetype is a collection where each item has the same properties except for the unique serial number, owner and history.
 
 Each archetype is defined by its id, the quota per wallet, and a contract that is responsible for the minting conditions. As of today, the only minting conditions is the collection size limit which only validates that the serial number is within the bounds.
+
+## Security
+The Quartz contracts have been audited by Apriorit. The report can be found [here](audits/NomadicLabs%20audit%20-%20Ubisoft%20v2.pdf).
 
 ## Contracts
 
@@ -73,3 +76,11 @@ Run unit tests
 ```console
 npm test
 ```
+
+# License
+
+The Quartz contracts are available under the [Apache 2.0 License](LICENSE.md)
+
+# Credits
+
+The Quartz Smart Contracts were ported to Archetype with the help from [Nomadic Labs](https://www.nomadic-labs.com) and the [Completium](https://completium.com) team: [Benoit Rognier](https://www.linkedin.com/in/benoitrognier) and [Guillaume Duhamel](https://www.linkedin.com/in/guillaumeduhamel)

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright © 2021-2022 UBISOFT
+
 /**
  * The Archetype contract controls the Quartz archetype creation and
  * ensures that the collection limits are respected.
