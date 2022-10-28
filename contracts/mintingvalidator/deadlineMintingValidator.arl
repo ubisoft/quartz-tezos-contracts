@@ -102,8 +102,6 @@ asset deadline to big_map {
   value  : date;
 }
 
-entry setDealine(id : nat, )
-
 entry setDeadline(id : nat, v : date) {
   require {
     r0 : isMinterCaller();
